@@ -5,7 +5,7 @@ python-dotenv>=1.0.0
 gunicorn>=21.0.0
 
 # Video download
-yt-dlp>=2024.1.0
+yt-dlp>=2024.11.4
 
 # Transcription (local, no API key needed)
 faster-whisper>=1.0.0
