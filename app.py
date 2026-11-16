@@ -16,7 +16,7 @@ from pipeline.downloader    import download_video
 from pipeline.transcriber   import transcribe
 from pipeline.clip_detector import detect_clips
 from pipeline.video_processor import process_clip, check_ffmpeg
-from pipeline.database      import init_db, save_clip, get_stats
+from pipeline.database      import init_db, save_clip, get_stats, set_meta
 from pipeline.learner       import extract_features, train_model, should_retrain
 
 app = Flask(__name__)
@@ -25,6 +25,21 @@ CORS(app)
 
 os.makedirs(Config.OUTPUT_DIR, exist_ok=True)
 init_db()
+
+# ── Restore cookies from DB on every startup (survives redeploys) ──────────
+def _restore_cookies():
+    try:
+        from pipeline.database import _conn
+        with _conn() as c:
+            row = c.execute("SELECT value FROM meta WHERE key='yt_cookies'").fetchone()
+            if row and row['value']:
+                p = os.path.join(Config.OUTPUT_DIR, 'cookies.txt')
+                with open(p, 'w') as f:
+                    f.write(row['value'])
+    except Exception:
+        pass
+
+_restore_cookies()
 
 JOBS      = {}
 JOBS_LOCK = threading.Lock()
@@ -131,18 +146,21 @@ def api_brain_train():
 
 @app.route('/api/cookies', methods=['POST'])
 def api_cookies():
-    """Save YouTube cookies.txt content so yt-dlp can bypass bot detection."""
+    """Save YouTube cookies.txt — persisted in SQLite so they survive redeploys."""
     data = request.get_json(force=True)
     content = (data.get('cookies') or '').strip()
+    p = os.path.join(Config.OUTPUT_DIR, 'cookies.txt')
     if not content:
-        # Delete existing cookies file if empty string sent
-        p = os.path.join(Config.OUTPUT_DIR, 'cookies.txt')
         if os.path.exists(p): os.remove(p)
+        set_meta('yt_cookies', '')
         return jsonify({'ok': True, 'msg': 'Cookies cleared'})
-    path = os.path.join(Config.OUTPUT_DIR, 'cookies.txt')
-    with open(path, 'w') as f:
+    # Save to disk for immediate use
+    with open(p, 'w') as f:
         f.write(content)
-    return jsonify({'ok': True, 'msg': f'Saved {len(content.splitlines())} cookie lines'})
+    # Also persist in SQLite so they survive server restarts/redeploys
+    set_meta('yt_cookies', content)
+    lines = len([l for l in content.splitlines() if l.strip() and not l.startswith('#')])
+    return jsonify({'ok': True, 'msg': f'Saved {lines} cookie lines (persisted)'})
 
 
 @app.route('/api/cookies', methods=['GET'])
