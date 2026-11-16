@@ -1,5 +1,21 @@
 /* ShortSVault — Frontend JS */
 
+// ── Theme ─────────────────────────────────────────────────────────────────
+let currentTheme = 'dark';
+
+function toggleTheme() {
+  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  applyTheme(currentTheme);
+  localStorage.setItem('viralclipper_theme', currentTheme);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : '');
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+  currentTheme = theme;
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 let currentMode = 'auto';
 let settings    = { brand_kit: { channel_name:'', font:'Arial',
@@ -323,6 +339,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sv) settings = JSON.parse(sv);
     const sm = localStorage.getItem('viralclipper_mode');
     if (sm) setMode(sm);
+    const st = localStorage.getItem('viralclipper_theme');
+    applyTheme(st || 'dark');
   } catch {}
 
   document.getElementById('urlInput').addEventListener('keydown', e => {
