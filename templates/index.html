@@ -31,7 +31,8 @@
       <span class="badge {% if ffmpeg_ok %}badge-ok{% else %}badge-err{% endif %}">
         FFmpeg {% if ffmpeg_ok %}✓{% else %}✗{% endif %}
       </span>
-      <button class="btn-icon" onclick="openSettings()" title="Settings">⚙</button>
+      <button class="btn-theme" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
+      <button class="btn-icon"  onclick="openSettings()" title="Settings">⚙</button>
     </div>
   </div>
 </nav>
