@@ -53,33 +53,25 @@ def download_video(url: str, job_id: str, progress_cb=None) -> dict:
             'key': 'FFmpegVideoConvertor',
             'preferedformat': 'mp4',
         }],
-        # Bypass bot detection: use iOS/TV player clients instead of web
+        # web_creator client: bypasses both bot detection AND Premium DRM
+        # (YouTube Studio client never serves DRM-encrypted streams)
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios', 'tv_embedded', 'web'],
+                'player_client': ['web_creator', 'ios', 'web'],
             }
-        },
-        # Rotate user-agent to look like a real browser
-        'http_headers': {
-            'User-Agent': (
-                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
-                'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
-                'Mobile/15E148 Safari/604.1'
-            ),
         },
     }
 
     # Google Drive special handling
     if 'drive.google.com' in url:
         ydl_opts['format'] = 'best'
-        del ydl_opts['extractor_args']   # not needed for Drive
+        del ydl_opts['extractor_args']
 
-    # Optional cookies file (place cookies.txt in OUTPUT_DIR to bypass age-gating)
+    # Cookies file — bypasses bot detection; use web_creator to avoid DRM from Premium accounts
     cookies_path = os.path.join(Config.OUTPUT_DIR, 'cookies.txt')
     if os.path.exists(cookies_path):
         ydl_opts['cookiefile'] = cookies_path
 
-    # Try primary options; if still blocked, retry with android client
     def _try_download(opts):
         with yt_dlp.YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=True), ydl
@@ -87,11 +79,22 @@ def download_video(url: str, job_id: str, progress_cb=None) -> dict:
     try:
         info, ydl = _try_download(ydl_opts)
     except yt_dlp.utils.DownloadError as e:
-        if 'Sign in' in str(e) or 'bot' in str(e).lower():
+        err = str(e)
+        if 'Sign in' in err or 'bot' in err.lower():
+            # Bot blocked — retry without cookies using android client
             if progress_cb:
-                progress_cb("Retrying with Android client...", 6)
+                progress_cb("Retrying without cookies (android client)...", 6)
             fallback = dict(ydl_opts)
-            fallback['extractor_args'] = {'youtube': {'player_client': ['android', 'ios']}}
+            fallback.pop('cookiefile', None)
+            fallback['extractor_args'] = {'youtube': {'player_client': ['android', 'web_creator']}}
+            info, ydl = _try_download(fallback)
+        elif 'DRM' in err:
+            # DRM hit — retry with mweb client (no DRM, no Premium streams)
+            if progress_cb:
+                progress_cb("Retrying with mobile client (DRM bypass)...", 6)
+            fallback = dict(ydl_opts)
+            fallback['extractor_args'] = {'youtube': {'player_client': ['mweb', 'web_creator']}}
+            fallback.pop('cookiefile', None)   # remove Premium cookies
             info, ydl = _try_download(fallback)
         else:
             raise
