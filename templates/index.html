@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ViralClipper — Turn Any Video Into Viral Shorts</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+
+<!-- ───── NAVBAR ───── -->
+<nav class="navbar">
+  <div class="nav-inner">
+    <div class="logo">
+      <span class="logo-icon">⚡</span>
+      <span class="logo-text">ViralClipper</span>
+    </div>
+    <div class="nav-badges">
+      <span class="badge {% if ai_provider == 'heuristic' %}badge-warn{% else %}badge-ok{% endif %}">
+        AI: {{ ai_provider }}
+      </span>
+      <span class="badge {% if ffmpeg_ok %}badge-ok{% else %}badge-err{% endif %}">
+        FFmpeg: {% if ffmpeg_ok %}✓{% else %}✗ missing{% endif %}
+      </span>
+      <button class="btn-icon" onclick="openSettings()" title="Settings">⚙</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ───── HERO ───── -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div class="hero-content">
+    <div class="hero-tag">🚀 Free · No watermark · No limits</div>
+    <h1>Turn One Video Into<br/><span class="gradient-text">Viral Shorts</span></h1>
+    <p class="hero-sub">Paste a YouTube, Twitch, Drive or Dropbox link.<br/>
+      AI finds the best moments, adds captions, exports 1080p — automatically.</p>
+
+    <!-- URL INPUT BOX -->
+    <div class="input-card" id="inputCard">
+      <div class="input-wrap">
+        <span class="input-icon">🔗</span>
+        <input type="url" id="urlInput" placeholder="Paste video URL here…"
+               onkeydown="if(event.key==='Enter')processVideo()"/>
+        <button class="btn-primary" id="goBtn" onclick="processVideo()">
+          <span>Generate Clips</span>
+          <span class="btn-arrow">→</span>
+        </button>
+      </div>
+
+      <!-- BATCH MODE -->
+      <div class="batch-toggle" onclick="toggleBatch()">
+        <span id="batchToggleIcon">+</span> Add multiple URLs (batch mode)
+      </div>
+      <div id="batchArea" class="batch-area hidden">
+        <textarea id="batchUrls" rows="4"
+          placeholder="One URL per line&#10;https://youtube.com/watch?v=...&#10;https://youtu.be/..."></textarea>
+      </div>
+
+      <div class="supported-sources">
+        <span>Supports:</span>
+        <span class="source-chip">YouTube</span>
+        <span class="source-chip">Twitch</span>
+        <span class="source-chip">Google Drive</span>
+        <span class="source-chip">Dropbox</span>
+        <span class="source-chip">Vimeo</span>
+        <span class="source-chip">+ more</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───── JOBS SECTION ───── -->
+<section class="jobs-section" id="jobsSection">
+  <div class="container">
+    <div id="jobsList"></div>
+  </div>
+</section>
+
+<!-- ───── FEATURES ───── -->
+<section class="features" id="featuresSection">
+  <div class="container">
+    <h2 class="section-title">Everything you need. All free.</h2>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🧠</div>
+        <h3>AI Clip Detection</h3>
+        <p>Finds emotionally powerful, story-driven moments automatically. Uses Claude or GPT-4o when you add API keys — smart heuristics otherwise.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📱</div>
+        <h3>9:16 Auto Reframe</h3>
+        <p>Face detection crops your landscape video into a perfect vertical format for TikTok, Reels & Shorts.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <h3>Animated Captions</h3>
+        <p>Word-by-word karaoke-style captions burned directly into the video. 100+ languages supported via Whisper.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🏆</div>
+        <h3>Viral Score</h3>
+        <p>Every clip gets a 0–100 viral potential score based on emotional signals, pacing, and content type.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📦</div>
+        <h3>Batch Export</h3>
+        <p>Process multiple videos at once. Download all clips as a ZIP in one click. 1080×1920 MP4, no watermarks.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🎨</div>
+        <h3>Brand Kit</h3>
+        <p>Add your channel name, choose caption font and colors. Every clip automatically branded for your identity.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───── SETTINGS MODAL ───── -->
+<div class="modal-overlay" id="settingsModal" onclick="closeSettings(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>⚙ Settings & Brand Kit</h2>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <!-- API Keys -->
+      <div class="settings-section">
+        <h3>🔑 API Keys <span class="settings-note">(optional — improves clip quality)</span></h3>
+        <div class="form-group">
+          <label>Anthropic API Key (Claude)</label>
+          <input type="password" id="s_anthropic" placeholder="sk-ant-..."/>
+        </div>
+        <div class="form-group">
+          <label>OpenAI API Key (Whisper + GPT-4o)</label>
+          <input type="password" id="s_openai" placeholder="sk-..."/>
+        </div>
+      </div>
+
+      <!-- Transcription -->
+      <div class="settings-section">
+        <h3>🎙 Transcription</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Mode</label>
+            <select id="s_whisper_mode">
+              <option value="local">Local (free, slower)</option>
+              <option value="openai">OpenAI API (faster, costs ~$0.006/min)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Whisper Model</label>
+            <select id="s_whisper_model">
+              <option value="tiny">tiny (fastest)</option>
+              <option value="base" selected>base (recommended)</option>
+              <option value="small">small (more accurate)</option>
+              <option value="medium">medium (high accuracy)</option>
+              <option value="large-v3">large-v3 (best, slow)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Clip Settings -->
+      <div class="settings-section">
+        <h3>✂ Clip Settings</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Max clips per video</label>
+            <input type="number" id="s_max_clips" value="7" min="1" max="20"/>
+          </div>
+          <div class="form-group">
+            <label>Min clip length (sec)</label>
+            <input type="number" id="s_min_dur" value="15" min="5" max="30"/>
+          </div>
+          <div class="form-group">
+            <label>Max clip length (sec)</label>
+            <input type="number" id="s_max_dur" value="90" min="30" max="180"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Brand Kit -->
+      <div class="settings-section">
+        <h3>🎨 Brand Kit</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Channel Name</label>
+            <input type="text" id="s_channel" placeholder="@yourchannel"/>
+          </div>
+          <div class="form-group">
+            <label>Caption Font</label>
+            <select id="s_font">
+              <option value="Arial">Arial</option>
+              <option value="Impact">Impact</option>
+              <option value="Helvetica">Helvetica</option>
+              <option value="Georgia">Georgia</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Caption Color</label>
+            <input type="color" id="s_caption_color" value="#ffffff"/>
+          </div>
+          <div class="form-group">
+            <label>Highlight Color</label>
+            <input type="color" id="s_highlight_color" value="#ffff00"/>
+          </div>
+          <div class="form-group">
+            <label>Watermark Color</label>
+            <input type="color" id="s_watermark_color" value="#ffffff"/>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeSettings()">Cancel</button>
+      <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- ───── CLIP CARD TEMPLATE (hidden, cloned by JS) ───── -->
+<template id="clipCardTemplate">
+  <div class="clip-card">
+    <div class="clip-header">
+      <div class="clip-num"></div>
+      <div class="clip-score-wrap">
+        <div class="clip-score-label">Viral Score</div>
+        <div class="clip-score"></div>
+      </div>
+    </div>
+    <div class="clip-title"></div>
+    <div class="clip-meta">
+      <span class="clip-duration"></span>
+      <span class="clip-type-badge"></span>
+    </div>
+    <div class="clip-hook"></div>
+    <div class="clip-caption-preview"></div>
+    <div class="clip-reason"></div>
+    <div class="clip-actions">
+      <button class="btn-download">⬇ Download MP4</button>
+      <button class="btn-copy-caption">📋 Copy Caption</button>
+    </div>
+  </div>
+</template>
+
+<!-- ───── JOB TEMPLATE ───── -->
+<template id="jobTemplate">
+  <div class="job-card" id="">
+    <div class="job-header">
+      <div class="job-info">
+        <div class="job-title">Processing video...</div>
+        <div class="job-url"></div>
+      </div>
+      <div class="job-status-badge">queued</div>
+    </div>
+    <div class="job-progress-wrap">
+      <div class="job-progress-bar"><div class="job-progress-fill"></div></div>
+      <div class="job-progress-msg"></div>
+    </div>
+    <div class="job-clips-grid"></div>
+    <div class="job-actions hidden">
+      <button class="btn-dl-all">⬇ Download All Clips (ZIP)</button>
+    </div>
+  </div>
+</template>
+
+<footer class="footer">
+  <p>ViralClipper · Open source · Zero restrictions · <a href="https://github.com" target="_blank">GitHub</a></p>
+</footer>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
