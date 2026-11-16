@@ -62,11 +62,11 @@ def download_video(url: str, job_id: str, progress_cb=None) -> dict:
             'key': 'FFmpegVideoConvertor',
             'preferedformat': 'mp4',
         }],
-        # web client respects cookies for bot-bypass authentication
-        # H.264/AAC format filter prevents DRM even with Premium cookies
+        # tv_embedded = YouTube's TV/console client — rarely bot-blocked from servers
+        # Also doesn't serve Premium DRM streams, so safe with Premium cookies
         'extractor_args': {
             'youtube': {
-                'player_client': ['web', 'ios'],
+                'player_client': ['tv_embedded', 'ios', 'web'],
             }
         },
     }
@@ -76,7 +76,7 @@ def download_video(url: str, job_id: str, progress_cb=None) -> dict:
         ydl_opts['format'] = 'best'
         del ydl_opts['extractor_args']
 
-    # Cookies file — web client uses these to authenticate and bypass bot detection
+    # Attach cookies if available
     cookies_path = os.path.join(Config.OUTPUT_DIR, 'cookies.txt')
     if os.path.exists(cookies_path):
         ydl_opts['cookiefile'] = cookies_path
@@ -90,19 +90,17 @@ def download_video(url: str, job_id: str, progress_cb=None) -> dict:
     except yt_dlp.utils.DownloadError as e:
         err = str(e)
         if 'DRM' in err:
-            # Still hit DRM — force even stricter H.264 only, no cookies
             if progress_cb:
-                progress_cb("Retrying without Premium cookies (DRM bypass)...", 6)
+                progress_cb("DRM detected — retrying without Premium cookies...", 6)
             fallback = dict(ydl_opts)
             fallback.pop('cookiefile', None)
-            fallback['format'] = 'bestvideo[vcodec^=avc1][height<=720]+bestaudio[acodec^=mp4a]/best[height<=720]'
             fallback['extractor_args'] = {'youtube': {'player_client': ['ios', 'android']}}
             info, ydl = _try_download(fallback)
         elif 'Sign in' in err or 'bot' in err.lower():
             if progress_cb:
-                progress_cb("Bot check — retrying with Android client...", 6)
+                progress_cb("Retrying with android+mweb clients...", 6)
             fallback = dict(ydl_opts)
-            fallback['extractor_args'] = {'youtube': {'player_client': ['android', 'ios']}}
+            fallback['extractor_args'] = {'youtube': {'player_client': ['android', 'mweb', 'tv_embedded']}}
             info, ydl = _try_download(fallback)
         else:
             raise
