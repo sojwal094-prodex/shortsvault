@@ -41,6 +41,7 @@ def download_video(url: str, job_id: str, progress_cb=None) -> dict:
     if progress_cb:
         progress_cb("Starting download...", 5)
 
+    # Base options — use iOS + TV clients to bypass YouTube bot detection on server IPs
     ydl_opts = {
         'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
         'outtmpl': os.path.join(out_dir, '%(id)s.%(ext)s'),
@@ -52,16 +53,51 @@ def download_video(url: str, job_id: str, progress_cb=None) -> dict:
             'key': 'FFmpegVideoConvertor',
             'preferedformat': 'mp4',
         }],
+        # Bypass bot detection: use iOS/TV player clients instead of web
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['ios', 'tv_embedded', 'web'],
+            }
+        },
+        # Rotate user-agent to look like a real browser
+        'http_headers': {
+            'User-Agent': (
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+                'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
+                'Mobile/15E148 Safari/604.1'
+            ),
+        },
     }
 
     # Google Drive special handling
     if 'drive.google.com' in url:
         ydl_opts['format'] = 'best'
+        del ydl_opts['extractor_args']   # not needed for Drive
 
+    # Optional cookies file (place cookies.txt in OUTPUT_DIR to bypass age-gating)
+    cookies_path = os.path.join(Config.OUTPUT_DIR, 'cookies.txt')
+    if os.path.exists(cookies_path):
+        ydl_opts['cookiefile'] = cookies_path
+
+    # Try primary options; if still blocked, retry with android client
+    def _try_download(opts):
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            return ydl.extract_info(url, download=True), ydl
+
+    try:
+        info, ydl = _try_download(ydl_opts)
+    except yt_dlp.utils.DownloadError as e:
+        if 'Sign in' in str(e) or 'bot' in str(e).lower():
+            if progress_cb:
+                progress_cb("Retrying with Android client...", 6)
+            fallback = dict(ydl_opts)
+            fallback['extractor_args'] = {'youtube': {'player_client': ['android', 'ios']}}
+            info, ydl = _try_download(fallback)
+        else:
+            raise
+
+    # info already fetched above — just resolve the filepath
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-
-        # Find the actual downloaded file
         filepath = ydl.prepare_filename(info)
         if not filepath.endswith('.mp4'):
             filepath = os.path.splitext(filepath)[0] + '.mp4'
