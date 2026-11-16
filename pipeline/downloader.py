@@ -43,7 +43,16 @@ def download_video(url: str, job_id: str, progress_cb=None) -> dict:
 
     # Base options — use iOS + TV clients to bypass YouTube bot detection on server IPs
     ydl_opts = {
-        'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+        # H.264 + AAC = standard non-DRM codecs. Never encrypted even on Premium accounts.
+        # Falls back through progressively looser formats until something works.
+        'format': (
+            'bestvideo[vcodec^=avc1][height<=1080][ext=mp4]+bestaudio[acodec^=mp4a][ext=m4a]'
+            '/bestvideo[vcodec^=avc1][height<=1080]+bestaudio[acodec^=mp4a]'
+            '/bestvideo[vcodec^=avc][height<=1080]+bestaudio'
+            '/best[height<=1080][ext=mp4]'
+            '/best[height<=1080]'
+            '/best'
+        ),
         'outtmpl': os.path.join(out_dir, '%(id)s.%(ext)s'),
         'merge_output_format': 'mp4',
         'quiet': True,
