@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: viralclipper
+    env: docker
+    region: oregon
+    plan: starter          # $7/month — 512MB RAM, 0.5 CPU. Upgrade to standard for faster processing.
+    healthCheckPath: /
+    autoDeploy: true       # auto-redeploy on every git push
+
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: OUTPUT_DIR
+        value: /tmp/viralclipper_output
+      - key: WHISPER_MODE
+        value: local
+      - key: WHISPER_MODEL
+        value: base          # use "tiny" on free/starter plan for speed
+      - key: AI_PROVIDER
+        value: auto
+      - key: MAX_VIDEO_DURATION
+        value: 3600
+      - key: SECRET_KEY
+        generateValue: true  # Render auto-generates a secure random value
+      - key: DEBUG
+        value: false
+
+      # ── Uncomment and fill these when you're ready ──────────────────────────
+      # - key: ANTHROPIC_API_KEY
+      #   sync: false        # marks it as a secret in Render dashboard
+      # - key: OPENAI_API_KEY
+      #   sync: false
