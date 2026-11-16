@@ -129,6 +129,34 @@ def api_brain_train():
     return jsonify(result)
 
 
+@app.route('/api/cookies', methods=['POST'])
+def api_cookies():
+    """Save YouTube cookies.txt content so yt-dlp can bypass bot detection."""
+    data = request.get_json(force=True)
+    content = (data.get('cookies') or '').strip()
+    if not content:
+        # Delete existing cookies file if empty string sent
+        p = os.path.join(Config.OUTPUT_DIR, 'cookies.txt')
+        if os.path.exists(p): os.remove(p)
+        return jsonify({'ok': True, 'msg': 'Cookies cleared'})
+    path = os.path.join(Config.OUTPUT_DIR, 'cookies.txt')
+    with open(path, 'w') as f:
+        f.write(content)
+    return jsonify({'ok': True, 'msg': f'Saved {len(content.splitlines())} cookie lines'})
+
+
+@app.route('/api/cookies', methods=['GET'])
+def api_cookies_status():
+    """Check if cookies.txt exists."""
+    path = os.path.join(Config.OUTPUT_DIR, 'cookies.txt')
+    exists = os.path.exists(path)
+    lines  = 0
+    if exists:
+        with open(path) as f:
+            lines = sum(1 for l in f if l.strip() and not l.startswith('#'))
+    return jsonify({'has_cookies': exists, 'cookie_count': lines})
+
+
 @app.route('/api/settings', methods=['GET'])
 def api_settings():
     return jsonify({
