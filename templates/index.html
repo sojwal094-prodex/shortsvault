@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>ViralClipper — Turn Any Video Into Viral Shorts</title>
+  <title>ShortSVault — AI Viral Clip Generator</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="/static/css/style.css"/>
@@ -15,14 +15,24 @@
   <div class="nav-inner">
     <div class="logo">
       <span class="logo-icon">⚡</span>
-      <span class="logo-text">ViralClipper</span>
+      <span class="logo-text">ShortSVault</span>
     </div>
     <div class="nav-badges">
-      <span class="badge {% if ai_provider == 'heuristic' %}badge-warn{% else %}badge-ok{% endif %}">
-        AI: {{ ai_provider }}
-      </span>
+      <!-- Brain badge (live learning status) -->
+      <div class="brain-badge" id="brainBadge" onclick="openSettings()">
+        <span class="brain-icon">🧠</span>
+        <span class="brain-label" id="brainLabel">
+          {% if brain_stats.model_accuracy %}
+            Model active · {{ brain_stats.total_clips }} clips · ~{{ brain_stats.model_accuracy|int }}% acc
+          {% elif brain_stats.total_clips > 0 %}
+            Learning · {{ brain_stats.total_clips }} clips stored
+          {% else %}
+            Waiting to learn
+          {% endif %}
+        </span>
+      </div>
       <span class="badge {% if ffmpeg_ok %}badge-ok{% else %}badge-err{% endif %}">
-        FFmpeg: {% if ffmpeg_ok %}✓{% else %}✗ missing{% endif %}
+        FFmpeg {% if ffmpeg_ok %}✓{% else %}✗{% endif %}
       </span>
       <button class="btn-icon" onclick="openSettings()" title="Settings">⚙</button>
     </div>
@@ -33,12 +43,30 @@
 <section class="hero">
   <div class="hero-glow"></div>
   <div class="hero-content">
-    <div class="hero-tag">🚀 Free · No watermark · No limits</div>
-    <h1>Turn One Video Into<br/><span class="gradient-text">Viral Shorts</span></h1>
-    <p class="hero-sub">Paste a YouTube, Twitch, Drive or Dropbox link.<br/>
-      AI finds the best moments, adds captions, exports 1080p — automatically.</p>
+    <div class="hero-tag">🚀 Free · Self-learning · No limits</div>
+    <h1>Turn Any Video Into<br/><span class="gradient-text">Viral Shorts</span></h1>
+    <p class="hero-sub">Paste a YouTube, Twitch, Drive or Dropbox link.
+      AI finds the best moments, adds captions, exports 1080p.
+      Gets smarter with every clip.</p>
 
-    <!-- URL INPUT BOX -->
+    <!-- MODE TOGGLE -->
+    <div class="mode-toggle-wrap">
+      <span class="mode-label">Detection mode:</span>
+      <div class="mode-toggle" id="modeToggle">
+        <button class="mode-btn active" data-mode="auto" onclick="setMode('auto')">
+          🤖 Auto
+        </button>
+        <button class="mode-btn" data-mode="local" onclick="setMode('local')">
+          🧠 Smart Local
+        </button>
+        <button class="mode-btn" data-mode="api" onclick="setMode('api')">
+          ✨ API
+        </button>
+      </div>
+      <span class="mode-desc" id="modeDesc">Uses AI API when available, otherwise the self-learned model</span>
+    </div>
+
+    <!-- URL INPUT -->
     <div class="input-card" id="inputCard">
       <div class="input-wrap">
         <span class="input-icon">🔗</span>
@@ -50,13 +78,12 @@
         </button>
       </div>
 
-      <!-- BATCH MODE -->
       <div class="batch-toggle" onclick="toggleBatch()">
         <span id="batchToggleIcon">+</span> Add multiple URLs (batch mode)
       </div>
       <div id="batchArea" class="batch-area hidden">
         <textarea id="batchUrls" rows="4"
-          placeholder="One URL per line&#10;https://youtube.com/watch?v=...&#10;https://youtu.be/..."></textarea>
+          placeholder="One URL per line&#10;https://youtube.com/watch?v=..."></textarea>
       </div>
 
       <div class="supported-sources">
@@ -69,14 +96,71 @@
         <span class="source-chip">+ more</span>
       </div>
     </div>
+
+    <!-- BRAIN STATS CARD -->
+    <div class="brain-card" id="brainCard">
+      <div class="brain-card-header">
+        <span class="brain-card-icon">🧠</span>
+        <div>
+          <div class="brain-card-title">Self-Learning Brain</div>
+          <div class="brain-card-sub">Gets smarter every time you process a video</div>
+        </div>
+        <div class="brain-progress-ring">
+          <svg width="52" height="52" viewBox="0 0 52 52">
+            <circle cx="26" cy="26" r="22" fill="none" stroke="#2a2a35" stroke-width="4"/>
+            <circle cx="26" cy="26" r="22" fill="none" stroke="url(#grad)" stroke-width="4"
+                    stroke-linecap="round" stroke-dasharray="138"
+                    stroke-dashoffset="{{ [138 - (brain_stats.total_clips / 50 * 138)|int, 0]|max }}"
+                    id="brainRing" transform="rotate(-90 26 26)"/>
+            <defs>
+              <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#8b5cf6"/>
+                <stop offset="100%" stop-color="#ec4899"/>
+              </linearGradient>
+            </defs>
+          </svg>
+          <div class="brain-ring-label" id="brainRingLabel">
+            {{ brain_stats.total_clips }}<br/><small>clips</small>
+          </div>
+        </div>
+      </div>
+      <div class="brain-stats-row">
+        <div class="brain-stat">
+          <div class="brain-stat-val" id="bsTotal">{{ brain_stats.total_clips }}</div>
+          <div class="brain-stat-key">Clips Stored</div>
+        </div>
+        <div class="brain-stat">
+          <div class="brain-stat-val" id="bsModel">
+            {% if brain_stats.model_accuracy %}~{{ brain_stats.model_accuracy|int }}%{% else %}—{% endif %}
+          </div>
+          <div class="brain-stat-key">Model Accuracy</div>
+        </div>
+        <div class="brain-stat">
+          <div class="brain-stat-val" id="bsAPI">{{ brain_stats.api_clips }}</div>
+          <div class="brain-stat-key">API-trained</div>
+        </div>
+        <div class="brain-stat">
+          <div class="brain-stat-val" id="bsReady">
+            {% if brain_stats.model_ready %}✅{% else %}⏳{% endif %}
+          </div>
+          <div class="brain-stat-key">Model Ready</div>
+        </div>
+      </div>
+      {% if not brain_stats.model_ready %}
+      <div class="brain-progress-bar-wrap">
+        <div class="brain-progress-label">{{ brain_stats.total_clips }}/10 clips until model activates</div>
+        <div class="brain-thin-bar">
+          <div class="brain-thin-fill" style="width:{{ [(brain_stats.total_clips / 10 * 100)|int, 100]|min }}%"></div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
   </div>
 </section>
 
-<!-- ───── JOBS SECTION ───── -->
+<!-- ───── JOBS ───── -->
 <section class="jobs-section" id="jobsSection">
-  <div class="container">
-    <div id="jobsList"></div>
-  </div>
+  <div class="container" id="jobsList"></div>
 </section>
 
 <!-- ───── FEATURES ───── -->
@@ -86,8 +170,8 @@
     <div class="features-grid">
       <div class="feature-card">
         <div class="feature-icon">🧠</div>
-        <h3>AI Clip Detection</h3>
-        <p>Finds emotionally powerful, story-driven moments automatically. Uses Claude or GPT-4o when you add API keys — smart heuristics otherwise.</p>
+        <h3>Self-Learning AI</h3>
+        <p>No API key? No problem. The app learns from every clip you process, building a personal model that knows YOUR content style.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">📱</div>
@@ -97,22 +181,22 @@
       <div class="feature-card">
         <div class="feature-icon">💬</div>
         <h3>Animated Captions</h3>
-        <p>Word-by-word karaoke-style captions burned directly into the video. 100+ languages supported via Whisper.</p>
+        <p>Word-by-word karaoke-style captions burned directly into the video. 100+ languages via Whisper.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🏆</div>
         <h3>Viral Score</h3>
-        <p>Every clip gets a 0–100 viral potential score based on emotional signals, pacing, and content type.</p>
+        <p>Every clip gets a 0–100 viral potential score. After 10 clips the score comes from your own trained model, not generic rules.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">📦</div>
         <h3>Batch Export</h3>
-        <p>Process multiple videos at once. Download all clips as a ZIP in one click. 1080×1920 MP4, no watermarks.</p>
+        <p>Process multiple videos at once. Download all clips as a ZIP. 1080×1920 MP4, no watermarks.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🎨</div>
         <h3>Brand Kit</h3>
-        <p>Add your channel name, choose caption font and colors. Every clip automatically branded for your identity.</p>
+        <p>Your channel name, font, and caption colors on every clip automatically.</p>
       </div>
     </div>
   </div>
@@ -122,21 +206,30 @@
 <div class="modal-overlay" id="settingsModal" onclick="closeSettings(event)">
   <div class="modal">
     <div class="modal-header">
-      <h2>⚙ Settings & Brand Kit</h2>
+      <h2>⚙ Settings</h2>
       <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
-
     <div class="modal-body">
+
+      <!-- Brain status -->
+      <div class="settings-section">
+        <h3>🧠 Learning Brain</h3>
+        <div class="brain-info-box" id="settingsBrainInfo">Loading…</div>
+        <button class="btn-secondary" style="margin-top:10px" onclick="triggerRetrain()">
+          🔄 Retrain Model Now
+        </button>
+      </div>
+
       <!-- API Keys -->
       <div class="settings-section">
         <h3>🔑 API Keys <span class="settings-note">(optional — improves clip quality)</span></h3>
         <div class="form-group">
           <label>Anthropic API Key (Claude)</label>
-          <input type="password" id="s_anthropic" placeholder="sk-ant-..."/>
+          <input type="password" id="s_anthropic" placeholder="sk-ant-…"/>
         </div>
         <div class="form-group">
-          <label>OpenAI API Key (Whisper + GPT-4o)</label>
-          <input type="password" id="s_openai" placeholder="sk-..."/>
+          <label>OpenAI API Key</label>
+          <input type="password" id="s_openai" placeholder="sk-…"/>
         </div>
       </div>
 
@@ -147,18 +240,18 @@
           <div class="form-group">
             <label>Mode</label>
             <select id="s_whisper_mode">
-              <option value="local">Local (free, slower)</option>
-              <option value="openai">OpenAI API (faster, costs ~$0.006/min)</option>
+              <option value="local">Local (free)</option>
+              <option value="openai">OpenAI API</option>
             </select>
           </div>
           <div class="form-group">
             <label>Whisper Model</label>
             <select id="s_whisper_model">
               <option value="tiny">tiny (fastest)</option>
-              <option value="base" selected>base (recommended)</option>
-              <option value="small">small (more accurate)</option>
-              <option value="medium">medium (high accuracy)</option>
-              <option value="large-v3">large-v3 (best, slow)</option>
+              <option value="base" selected>base</option>
+              <option value="small">small</option>
+              <option value="medium">medium</option>
+              <option value="large-v3">large-v3 (best)</option>
             </select>
           </div>
         </div>
@@ -169,15 +262,15 @@
         <h3>✂ Clip Settings</h3>
         <div class="form-row">
           <div class="form-group">
-            <label>Max clips per video</label>
+            <label>Max clips</label>
             <input type="number" id="s_max_clips" value="7" min="1" max="20"/>
           </div>
           <div class="form-group">
-            <label>Min clip length (sec)</label>
+            <label>Min length (sec)</label>
             <input type="number" id="s_min_dur" value="15" min="5" max="30"/>
           </div>
           <div class="form-group">
-            <label>Max clip length (sec)</label>
+            <label>Max length (sec)</label>
             <input type="number" id="s_max_dur" value="90" min="30" max="180"/>
           </div>
         </div>
@@ -197,7 +290,6 @@
               <option value="Arial">Arial</option>
               <option value="Impact">Impact</option>
               <option value="Helvetica">Helvetica</option>
-              <option value="Georgia">Georgia</option>
             </select>
           </div>
         </div>
@@ -210,14 +302,9 @@
             <label>Highlight Color</label>
             <input type="color" id="s_highlight_color" value="#ffff00"/>
           </div>
-          <div class="form-group">
-            <label>Watermark Color</label>
-            <input type="color" id="s_watermark_color" value="#ffffff"/>
-          </div>
         </div>
       </div>
     </div>
-
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeSettings()">Cancel</button>
       <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
@@ -225,7 +312,7 @@
   </div>
 </div>
 
-<!-- ───── CLIP CARD TEMPLATE (hidden, cloned by JS) ───── -->
+<!-- Templates -->
 <template id="clipCardTemplate">
   <div class="clip-card">
     <div class="clip-header">
@@ -239,6 +326,7 @@
     <div class="clip-meta">
       <span class="clip-duration"></span>
       <span class="clip-type-badge"></span>
+      <span class="clip-source-badge"></span>
     </div>
     <div class="clip-hook"></div>
     <div class="clip-caption-preview"></div>
@@ -250,12 +338,11 @@
   </div>
 </template>
 
-<!-- ───── JOB TEMPLATE ───── -->
 <template id="jobTemplate">
-  <div class="job-card" id="">
+  <div class="job-card">
     <div class="job-header">
       <div class="job-info">
-        <div class="job-title">Processing video...</div>
+        <div class="job-title">Processing video…</div>
         <div class="job-url"></div>
       </div>
       <div class="job-status-badge">queued</div>
@@ -264,15 +351,16 @@
       <div class="job-progress-bar"><div class="job-progress-fill"></div></div>
       <div class="job-progress-msg"></div>
     </div>
+    <div class="job-brain-msg hidden"></div>
     <div class="job-clips-grid"></div>
     <div class="job-actions hidden">
-      <button class="btn-dl-all">⬇ Download All Clips (ZIP)</button>
+      <button class="btn-dl-all">⬇ Download All (ZIP)</button>
     </div>
   </div>
 </template>
 
 <footer class="footer">
-  <p>ViralClipper · Open source · Zero restrictions · <a href="https://github.com" target="_blank">GitHub</a></p>
+  <p>ShortSVault · Open source · Self-learning · Zero restrictions</p>
 </footer>
 
 <script src="/static/js/app.js"></script>
