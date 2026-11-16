@@ -20,6 +20,9 @@ ffmpeg-python>=0.2.0
 # Face detection for auto-reframe
 opencv-python-headless>=4.9.0
 
+# Self-learning engine
+scikit-learn>=1.4.0
+
 # Utilities
 requests>=2.31.0
 tqdm>=4.66.0
