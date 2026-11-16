@@ -436,5 +436,107 @@ h1 {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Mode Toggle ── */
+.mode-toggle-wrap {
+  display: flex; align-items: center; gap: 12px;
+  justify-content: center; margin-bottom: 20px; flex-wrap: wrap;
+}
+.mode-label { font-size: 12px; color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.mode-toggle {
+  display: flex; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 2px;
+}
+.mode-btn {
+  background: transparent; border: none; color: var(--text2);
+  padding: 7px 14px; border-radius: 8px; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.2s; white-space: nowrap;
+}
+.mode-btn.active {
+  background: linear-gradient(135deg, var(--purple), var(--purple-dark));
+  color: white;
+}
+.mode-btn:not(.active):hover { background: var(--border); color: var(--text); }
+.mode-desc { font-size: 11px; color: var(--text3); max-width: 220px; text-align: left; }
+
+/* ── Brain Badge (navbar) ── */
+.brain-badge {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(139,92,246,0.1);
+  border: 1px solid rgba(139,92,246,0.25);
+  border-radius: 20px; padding: 4px 12px;
+  cursor: pointer; transition: all 0.2s;
+}
+.brain-badge:hover { background: rgba(139,92,246,0.18); }
+.brain-icon  { font-size: 14px; }
+.brain-label { font-size: 11px; color: var(--purple2); font-weight: 600; }
+
+/* ── Brain Stats Card ── */
+.brain-card {
+  background: var(--bg2);
+  border: 1px solid rgba(139,92,246,0.3);
+  border-radius: var(--radius); padding: 20px;
+  margin-top: 20px; text-align: left;
+}
+.brain-card-header {
+  display: flex; align-items: center; gap: 14px; margin-bottom: 16px;
+}
+.brain-card-icon { font-size: 28px; }
+.brain-card-title { font-size: 15px; font-weight: 700; }
+.brain-card-sub   { font-size: 12px; color: var(--text3); margin-top: 2px; }
+.brain-progress-ring { position: relative; flex-shrink: 0; margin-left: auto; }
+.brain-ring-label {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: 11px; font-weight: 800; text-align: center; line-height: 1.2;
+  color: var(--purple2);
+}
+.brain-ring-label small { font-size: 9px; font-weight: 500; color: var(--text3); }
+
+.brain-stats-row {
+  display: grid; grid-template-columns: repeat(4,1fr); gap: 12px;
+  margin-bottom: 14px;
+}
+.brain-stat { text-align: center; }
+.brain-stat-val {
+  font-size: 20px; font-weight: 800;
+  background: linear-gradient(135deg, var(--purple2), var(--pink));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.brain-stat-key { font-size: 10px; color: var(--text3); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+.brain-progress-bar-wrap { margin-top: 8px; }
+.brain-progress-label { font-size: 11px; color: var(--text3); margin-bottom: 6px; }
+.brain-thin-bar { height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+.brain-thin-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--purple), var(--pink));
+  border-radius: 2px; transition: width 0.6s ease;
+}
+
+/* ── Brain message after job ── */
+.job-brain-msg {
+  font-size: 12px; color: var(--purple2);
+  background: rgba(139,92,246,0.08);
+  border: 1px solid rgba(139,92,246,0.2);
+  border-radius: var(--radius-sm); padding: 10px 14px;
+  margin-bottom: 14px;
+}
+
+/* ── Source badge on clip cards ── */
+.clip-source-badge {
+  font-size: 9px; font-weight: 700; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 10px; letter-spacing: 0.4px;
+}
+.src-model     { background: rgba(139,92,246,0.2); color: var(--purple2); }
+.src-api       { background: rgba(34,197,94,0.15);  color: var(--green); }
+.src-heuristic { background: rgba(96,96,117,0.2);   color: var(--text3); }
+
+/* ── Brain info box in settings ── */
+.brain-info-box {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px;
+  font-size: 13px; color: var(--text2); line-height: 1.6;
+}
+
 /* ── Utilities ── */
 .hidden { display: none !important; }
