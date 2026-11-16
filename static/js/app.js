@@ -268,11 +268,35 @@ async function triggerRetrain() {
   btn.textContent = '🔄 Retrain Model Now'; btn.disabled = false;
 }
 
+// ── Cookies helpers ───────────────────────────────────────────────────────
+async function saveCookies() {
+  const content = document.getElementById('s_cookies').value.trim();
+  const r = await fetch('/api/cookies', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({cookies: content}) });
+  const d = await r.json();
+  showToast(d.msg || 'Saved');
+  refreshCookieStatus();
+}
+async function clearCookies() {
+  await fetch('/api/cookies', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({cookies: ''}) });
+  document.getElementById('s_cookies').value = '';
+  showToast('Cookies cleared');
+  refreshCookieStatus();
+}
+async function refreshCookieStatus() {
+  try {
+    const r = await fetch('/api/cookies');
+    const d = await r.json();
+    const el = document.getElementById('cookieStatus');
+    if (el) el.textContent = d.has_cookies ? `✅ ${d.cookie_count} cookies saved` : '⚠️ No cookies — may get bot errors';
+  } catch {}
+}
+
 // ── Settings modal ────────────────────────────────────────────────────────
 function openSettings() {
   document.getElementById('settingsModal').classList.add('open');
   loadSettingsIntoForm();
   refreshBrainStats();
+  refreshCookieStatus();
 }
 function closeSettings(e) {
   if (!e || e.target === document.getElementById('settingsModal'))
