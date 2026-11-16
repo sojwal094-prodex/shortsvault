@@ -1,12 +1,11 @@
 """
-clip_detector.py — Find the best viral clips using AI or heuristics
-Supports: Claude API | OpenAI API | Heuristic fallback (no API key needed)
+clip_detector.py — Viral clip detection with 3 modes
+  api      → Claude / OpenAI API (best quality, costs tokens)
+  local    → Self-learned ML model (improves with every clip)
+  auto     → API if key present, else local model, else heuristic
 """
 
-import os
-import re
-import json
-import math
+import os, re, json, math
 from config import Config
 from pipeline.transcriber import build_transcript_text
 
@@ -15,349 +14,248 @@ from pipeline.transcriber import build_transcript_text
 # Public entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def detect_clips(transcript: dict, video_info: dict, progress_cb=None) -> list:
+def detect_clips(transcript: dict, video_info: dict,
+                 mode: str = None, progress_cb=None) -> tuple:
     """
-    Analyze a transcript and return a list of viral clip candidates.
+    Detect viral clips. mode overrides Config if supplied.
 
-    Returns list of dicts:
-        {
-          'index':       int,
-          'start':       float,  # seconds
-          'end':         float,  # seconds
-          'duration':    float,
-          'viral_score': int,    # 0-100
-          'title':       str,
-          'hook':        str,    # first 3-5 words of clip
-          'caption':     str,    # suggested social caption + hashtags
-          'reason':      str,    # why this will perform well
-          'type':        str,    # emotion | story | insight | humor | value
-        }
+    Returns: (clips: list, source: str)
+      source = 'api_claude' | 'api_openai' | 'model' | 'heuristic'
     """
-    provider = Config.effective_ai_provider()
+    # Decide which engine to use
+    provider = mode or Config.effective_ai_provider()
 
     if progress_cb:
-        progress_cb(f"Detecting viral clips ({provider} engine)...", 38)
+        label = {'api_claude':'Claude AI','api_openai':'OpenAI GPT',
+                 'model':'Self-learned model','heuristic':'Smart heuristics',
+                 'claude':'Claude AI','openai':'OpenAI GPT',
+                 'local':'Self-learned model'}.get(provider, provider)
+        progress_cb(f"Detecting viral moments ({label})...", 38)
 
-    if provider == "claude":
-        clips = _detect_with_claude(transcript, video_info)
-    elif provider == "openai":
-        clips = _detect_with_openai(transcript, video_info)
-    else:
-        clips = _detect_heuristic(transcript, video_info)
+    # Try local ML model first if mode == 'local'
+    if provider in ('local', 'model'):
+        from pipeline.learner import predict_clips_local, load_model
+        model_data = load_model()
+        if model_data:
+            clips = predict_clips_local(transcript, video_info)
+            source = 'model'
+        else:
+            clips  = _detect_heuristic(transcript, video_info)
+            source = 'heuristic'
 
-    # Validate and clamp all clips
+    elif provider in ('claude', 'api_claude') and Config.has_anthropic():
+        try:
+            clips  = _detect_with_claude(transcript, video_info)
+            source = 'api_claude'
+        except Exception as e:
+            print(f"[warn] Claude failed ({e}), falling back")
+            clips  = _detect_heuristic(transcript, video_info)
+            source = 'heuristic'
+
+    elif provider in ('openai', 'api_openai') and Config.has_openai():
+        try:
+            clips  = _detect_with_openai(transcript, video_info)
+            source = 'api_openai'
+        except Exception as e:
+            print(f"[warn] OpenAI failed ({e}), falling back")
+            clips  = _detect_heuristic(transcript, video_info)
+            source = 'heuristic'
+
+    else:  # auto — try API, then model, then heuristic
+        if Config.has_anthropic():
+            try:
+                clips  = _detect_with_claude(transcript, video_info)
+                source = 'api_claude'
+            except Exception:
+                clips  = _detect_heuristic(transcript, video_info)
+                source = 'heuristic'
+        elif Config.has_openai():
+            try:
+                clips  = _detect_with_openai(transcript, video_info)
+                source = 'api_openai'
+            except Exception:
+                clips  = _detect_heuristic(transcript, video_info)
+                source = 'heuristic'
+        else:
+            from pipeline.learner import predict_clips_local, load_model
+            if load_model():
+                clips  = predict_clips_local(transcript, video_info)
+                source = 'model'
+            else:
+                clips  = _detect_heuristic(transcript, video_info)
+                source = 'heuristic'
+
     duration = transcript.get('duration', video_info.get('duration', 0))
-    clips = _validate_clips(clips, duration)
-
-    # Sort by viral score descending
+    clips    = _validate_clips(clips, duration)
     clips.sort(key=lambda c: c.get('viral_score', 0), reverse=True)
-
-    # Add index
-    for i, clip in enumerate(clips):
-        clip['index'] = i + 1
+    for i, c in enumerate(clips):
+        c['index'] = i + 1
 
     if progress_cb:
         progress_cb(f"Found {len(clips)} viral clip candidates!", 50)
 
-    return clips
+    return clips, source
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Claude  (Anthropic)
+# Claude
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _detect_with_claude(transcript: dict, video_info: dict) -> list:
+def _detect_with_claude(transcript, video_info):
     import anthropic
-
     client = anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
     transcript_text = build_transcript_text(transcript)
     duration = transcript.get('duration', video_info.get('duration', 0))
 
-    prompt = f"""You are a world-class viral content strategist who has helped creators get 100M+ views.
+    prompt = f"""You are a world-class viral content strategist.
 
-Analyze this video transcript and identify the {Config.MAX_CLIPS} best clips for TikTok, Instagram Reels, and YouTube Shorts.
+Analyze this transcript and identify the {Config.MAX_CLIPS} best clips for TikTok/Reels/Shorts.
 
-VIDEO INFO:
-- Title: {video_info.get('title', 'Unknown')}
-- Channel: {video_info.get('channel', 'Unknown')}
-- Duration: {duration:.0f} seconds ({duration/60:.1f} minutes)
-
-TRANSCRIPT (with timestamps):
-{transcript_text}
-
-For each clip, choose moments that have:
-✓ Strong opening hook (attention in first 3 seconds)
-✓ Emotional resonance (surprise, humor, inspiration, controversy, fear, joy)
-✓ Clear value or payoff
-✓ Natural beginning and end (not mid-sentence)
-✓ 15–90 seconds ideal length
-
-Return ONLY a valid JSON array — no markdown, no commentary. Each item:
-{{
-  "start": <float seconds>,
-  "end": <float seconds>,
-  "viral_score": <int 0-100>,
-  "title": "<punchy 5-8 word title>",
-  "hook": "<exact first sentence of clip>",
-  "caption": "<2-3 sentence social caption with 5 relevant hashtags>",
-  "reason": "<1 sentence: why this will go viral>",
-  "type": "<emotion|story|insight|humor|value|controversy>"
-}}"""
-
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=3000,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    raw = message.content[0].text.strip()
-    # Strip markdown code fences if present
-    raw = re.sub(r'^```(?:json)?\s*', '', raw)
-    raw = re.sub(r'\s*```$', '', raw)
-
-    return json.loads(raw)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# OpenAI  (GPT-4o)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _detect_with_openai(transcript: dict, video_info: dict) -> list:
-    from openai import OpenAI
-
-    client = OpenAI(api_key=Config.OPENAI_API_KEY)
-    transcript_text = build_transcript_text(transcript)
-    duration = transcript.get('duration', video_info.get('duration', 0))
-
-    prompt = f"""You are a viral content strategist. Analyze this transcript and find the {Config.MAX_CLIPS} best clips for short-form video.
-
-VIDEO: {video_info.get('title', 'Unknown')} | {duration:.0f}s
+VIDEO: {video_info.get('title','')} | {duration:.0f}s | {video_info.get('channel','')}
 
 TRANSCRIPT:
 {transcript_text}
 
-Return ONLY a JSON array. Each item must have:
-start (float), end (float), viral_score (int 0-100), title (str), hook (str), caption (str with hashtags), reason (str), type (emotion|story|insight|humor|value|controversy)
+Pick moments with: strong hooks, emotional peaks, surprising insights, humor, or controversy.
+Clips should be 15–90 seconds with natural start/end points.
 
-Clips should be 15-90 seconds. Return no other text."""
+Return ONLY a valid JSON array — no markdown. Each item:
+{{"start":<float>,"end":<float>,"viral_score":<int 0-100>,"title":"<string>","hook":"<string>","caption":"<string with hashtags>","reason":"<string>","type":"<emotion|story|insight|humor|value|controversy>"}}"""
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"},
-        max_tokens=3000,
+    msg = client.messages.create(
+        model="claude-sonnet-4-6", max_tokens=3000,
+        messages=[{"role":"user","content":prompt}]
     )
+    raw = msg.content[0].text.strip()
+    raw = re.sub(r'^```(?:json)?\s*','',raw); raw = re.sub(r'\s*```$','',raw)
+    return json.loads(raw)
 
-    raw = response.choices[0].message.content
-    parsed = json.loads(raw)
 
-    # GPT sometimes wraps in {"clips": [...]}
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenAI
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _detect_with_openai(transcript, video_info):
+    from openai import OpenAI
+    client = OpenAI(api_key=Config.OPENAI_API_KEY)
+    transcript_text = build_transcript_text(transcript)
+    duration = transcript.get('duration', video_info.get('duration', 0))
+
+    prompt = f"""Viral content strategist. Find {Config.MAX_CLIPS} best clips (15-90s each).
+VIDEO: {video_info.get('title','')} | {duration:.0f}s
+{transcript_text}
+Return JSON array only. Each: start,end,viral_score,title,hook,caption,reason,type"""
+
+    r = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role":"user","content":prompt}],
+        response_format={"type":"json_object"}, max_tokens=3000,
+    )
+    parsed = json.loads(r.choices[0].message.content)
     if isinstance(parsed, dict):
-        for key in ('clips', 'results', 'data'):
-            if key in parsed and isinstance(parsed[key], list):
-                return parsed[key]
+        for k in ('clips','results','data'):
+            if k in parsed and isinstance(parsed[k], list): return parsed[k]
         return list(parsed.values())[0] if parsed else []
-
     return parsed
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Heuristic fallback  (no API key needed)
+# Heuristic fallback
 # ─────────────────────────────────────────────────────────────────────────────
 
-VIRAL_KEYWORDS = {
-    'high': [
-        'secret', 'never told', 'nobody knows', 'shocking', 'reveal',
-        'actually', 'truth', 'mistake', 'wrong', 'surprising', 'incredible',
-        'you need to', 'most people', 'changed my life', 'important',
-        'serious', 'listen', 'pay attention', 'this is why', 'reason why',
-        'hack', 'trick', 'simple', 'easy', 'stop', 'don\'t', 'wait',
-    ],
-    'medium': [
-        'because', 'but', 'however', 'actually', 'really', 'truly',
-        'exactly', 'perfect', 'amazing', 'incredible', 'love', 'hate',
-        'money', 'success', 'fail', 'win', 'lose', 'best', 'worst',
-    ],
-}
+VIRAL_HIGH = ['secret','never told','nobody knows','shocking','reveal','actually',
+    'truth','mistake','wrong','surprising','incredible','you need to',
+    'most people','hack','trick','stop','wait','this is why','reason why',
+    'simple','easy',"don't",'important','serious','listen','pay attention']
+VIRAL_MED  = ['because','but','however','really','truly','exactly','perfect',
+    'amazing','incredible','love','hate','money','success','fail','win',
+    'lose','best','worst']
 
-def _detect_heuristic(transcript: dict, video_info: dict) -> list:
-    """Score segments by keyword density, sentence energy, and position."""
+def _detect_heuristic(transcript, video_info):
     segments   = transcript.get('segments', [])
     total_dur  = transcript.get('duration', video_info.get('duration', 0))
+    if not segments: return []
 
-    if not segments:
-        return []
-
-    # Score each segment
     scored = []
     for i, seg in enumerate(segments):
-        text  = seg['text'].lower()
-        score = 50  # baseline
+        t = seg['text'].lower(); score = 50
+        for kw in VIRAL_HIGH: score += 8 if kw in t else 0
+        for kw in VIRAL_MED:  score += 3 if kw in t else 0
+        score += min(t.count('?') * 5, 15)
+        score += min(t.count('!') * 3, 10)
+        rel = seg['start'] / max(total_dur, 1)
+        if 0.05 < rel < 0.9: score += 5
+        scored.append({'idx':i,'score':min(score,95),'seg':seg})
 
-        # Keyword scoring
-        for kw in VIRAL_KEYWORDS['high']:
-            if kw in text:
-                score += 8
-        for kw in VIRAL_KEYWORDS['medium']:
-            if kw in text:
-                score += 3
-
-        # Question marks → engagement
-        score += text.count('?') * 5
-
-        # Exclamation marks → energy
-        score += min(text.count('!') * 3, 10)
-
-        # Short snappy sentences score higher
-        words = text.split()
-        if 10 <= len(words) <= 30:
-            score += 5
-
-        # Avoid very beginning and very end (usually intro/outro)
-        rel_pos = seg['start'] / max(total_dur, 1)
-        if 0.05 < rel_pos < 0.9:
-            score += 5
-
-        # Cap at 95
-        score = min(score, 95)
-
-        scored.append({'idx': i, 'score': score, 'seg': seg})
-
-    # Sort by score and pick top candidates
     scored.sort(key=lambda x: x['score'], reverse=True)
-    top = scored[:Config.MAX_CLIPS * 3]  # over-select then merge
-
-    # Expand each top segment into a clip window
-    clips = []
-    used_ranges = []
-
-    for item in top:
-        idx   = item['idx']
-        score = item['score']
-        seg   = item['seg']
-
-        # Build a 20-60 second window around this segment
-        target_len = min(60, max(20, len(seg['text'].split()) * 0.5))
-        start = max(0, seg['start'] - 5)
-        end   = start
-
-        # Extend forward until we hit target length
+    clips = []; used = []
+    for item in scored:
+        if len(clips) >= Config.MAX_CLIPS: break
+        idx = item['idx']; seg = item['seg']
+        start = max(0, seg['start'] - 5); end = seg['end']
         j = idx
-        while j < len(segments) and (segments[j]['end'] - start) < target_len:
-            end = segments[j]['end']
-            j += 1
-
+        while j < len(segments) and (segments[j]['end'] - start) < 50:
+            end = segments[j]['end']; j += 1
         end = min(end, total_dur)
-        clip_len = end - start
-
-        if clip_len < Config.MIN_CLIP_DURATION:
-            continue
-
-        # Check overlap with existing clips (allow at most 20% overlap)
-        overlap = False
-        for (us, ue) in used_ranges:
-            overlap_secs = min(end, ue) - max(start, us)
-            if overlap_secs > 0 and overlap_secs / clip_len > 0.20:
-                overlap = True
-                break
-
-        if overlap:
-            continue
-
-        used_ranges.append((start, end))
-
-        # Build hook from first sentence
-        hook = seg['text'].strip()
-        if len(hook) > 80:
-            hook = hook[:80].rsplit(' ', 1)[0] + '...'
-
-        clip_type = _infer_type(seg['text'])
-
+        if (end-start) < Config.MIN_CLIP_DURATION: continue
+        overlap = any(min(end,ue)-max(start,us) > 0 and
+                      (min(end,ue)-max(start,us))/(end-start) > 0.20
+                      for us,ue in used)
+        if overlap: continue
+        used.append((start,end))
+        txt = seg['text'].strip()
         clips.append({
-            'start':       round(start, 2),
-            'end':         round(end, 2),
-            'viral_score': min(score, 95),
-            'title':       _make_title(seg['text']),
-            'hook':        hook,
-            'caption':     _make_caption(seg['text'], video_info),
-            'reason':      f"High-energy {clip_type} moment with strong engagement signals",
-            'type':        clip_type,
+            'start': round(start,2), 'end': round(end,2),
+            'viral_score': min(item['score'],95),
+            'title': _title(txt), 'hook': txt[:100],
+            'caption': _caption(txt, video_info),
+            'reason': '⚡ heuristic engine · keyword + energy signals',
+            'type': _type(txt),
         })
-
-        if len(clips) >= Config.MAX_CLIPS:
-            break
-
     return clips
 
-
-def _infer_type(text: str) -> str:
-    text = text.lower()
-    if any(w in text for w in ['laugh', 'funny', 'lol', 'joke', 'haha']):
-        return 'humor'
-    if any(w in text for w in ['story', 'when i', 'one day', 'remember']):
-        return 'story'
-    if any(w in text for w in ['tip', 'hack', 'secret', 'trick', 'how to', 'way to']):
-        return 'value'
-    if any(w in text for w in ['feel', 'emotion', 'love', 'hate', 'amazing', 'incredible']):
-        return 'emotion'
+def _type(t):
+    t=t.lower()
+    if any(w in t for w in ['laugh','funny','joke']): return 'humor'
+    if any(w in t for w in ['story','when i','remember']): return 'story'
+    if any(w in t for w in ['tip','hack','secret','how to']): return 'value'
+    if any(w in t for w in ['feel','love','hate','amazing']): return 'emotion'
     return 'insight'
 
+def _title(t):
+    w = t.strip().split()[:8]; s = ' '.join(w)
+    return (s[:47]+'...') if len(s)>50 else s.capitalize()
 
-def _make_title(text: str) -> str:
-    words = text.strip().split()[:8]
-    title = ' '.join(words)
-    if len(title) > 50:
-        title = title[:47] + '...'
-    return title.capitalize()
-
-
-def _make_caption(text: str, video_info: dict) -> str:
-    snippet = text.strip()[:120]
-    channel = video_info.get('channel', '')
+def _caption(t, vi):
+    s = t.strip()[:120]; ch = vi.get('channel','')
     tags = '#shorts #viral #trending #fyp #reels'
-    if channel:
-        return f'"{snippet}" — {channel}\n\n{tags}'
-    return f'"{snippet}"\n\n{tags}'
+    return (f'"{s}" — {ch}\n\n{tags}' if ch else f'"{s}"\n\n{tags}')
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Validation
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _validate_clips(clips: list, duration: float) -> list:
-    """Clamp, dedupe, and enforce duration constraints."""
+def _validate_clips(clips, duration):
     valid = []
     for c in clips:
-        start = max(0.0, float(c.get('start', 0)))
-        end   = min(float(duration or 999999), float(c.get('end', start + 30)))
-
-        # Enforce min/max duration
-        clip_len = end - start
-        if clip_len < Config.MIN_CLIP_DURATION:
-            end = start + Config.MIN_CLIP_DURATION
-        if clip_len > Config.MAX_CLIP_DURATION:
-            end = start + Config.MAX_CLIP_DURATION
-
-        # Clamp to video length
-        if end > duration > 0:
-            end = duration
-            start = max(0, end - (Config.MIN_CLIP_DURATION + 5))
-
-        c['start']    = round(start, 2)
-        c['end']      = round(end,   2)
-        c['duration'] = round(end - start, 2)
-
-        # Ensure required fields
+        s = max(0.0, float(c.get('start',0)))
+        e = min(float(duration or 999999), float(c.get('end', s+30)))
+        l = e - s
+        if l < Config.MIN_CLIP_DURATION: e = s + Config.MIN_CLIP_DURATION
+        if l > Config.MAX_CLIP_DURATION: e = s + Config.MAX_CLIP_DURATION
+        if duration > 0 and e > duration:
+            e = duration; s = max(0, e - Config.MIN_CLIP_DURATION - 5)
+        c['start']    = round(s,2)
+        c['end']      = round(e,2)
+        c['duration'] = round(e-s,2)
         c.setdefault('viral_score', 70)
-        c.setdefault('title',       'Viral Clip')
-        c.setdefault('hook',        '')
-        c.setdefault('caption',     '#shorts #viral #trending')
-        c.setdefault('reason',      '')
-        c.setdefault('type',        'insight')
-
+        c.setdefault('title',   'Viral Clip')
+        c.setdefault('hook',    '')
+        c.setdefault('caption', '#shorts #viral #trending')
+        c.setdefault('reason',  '')
+        c.setdefault('type',    'insight')
         c['viral_score'] = max(0, min(100, int(c['viral_score'])))
-
         if c['duration'] >= Config.MIN_CLIP_DURATION:
             valid.append(c)
-
     return valid[:Config.MAX_CLIPS]
